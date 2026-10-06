@@ -1,0 +1,153 @@
+/* GetInsightful design system — rewards design language (tauri-design skill).
+ * Light tokens in @theme generate bg-panel/text-ink/border-line utilities;
+ * the [data-theme="dark"] block below re-values the same names. Dark is the
+ * default (set on <html> in index.html). Components never hardcode hex except
+ * the fixed chart palette (mirrored from the token chart ramp by convention).
+ */
+@import "tailwindcss";
+@import "@fontsource/inter/400.css";
+@import "@fontsource/inter/500.css";
+@import "@fontsource/inter/600.css";
+@import "@fontsource/inter/700.css";
+@import "@fontsource/geist-mono/400.css";
+@import "@fontsource/geist-mono/500.css";
+
+@theme {
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono", "SF Mono", ui-monospace, Menlo, monospace;
+
+  --color-paper: #f7f6f3;     /* app background */
+  --color-panel: #ffffff;     /* cards, popovers, editors */
+  --color-sunken: #ecebe6;    /* hover fill, code chips */
+  --color-line: #d8d7d2;      /* primary border */
+  --color-line-soft: #e7e6e1; /* subtle separators */
+
+  --color-ink: #343d47;       /* primary text */
+  --color-ink-2: #485060;     /* headings, emphasized */
+  --color-ink-3: #586880;     /* secondary text */
+  --color-mute: #7b797d;      /* hints, placeholders, timestamps */
+
+  --color-accent: #037cc6;    /* links, active tab */
+  --color-accent-2: #0090c8;  /* running / busy */
+  --color-sky: #58c9e4;       /* selection + focus fills */
+  --color-good: #5f856c;      /* success, +N */
+  --color-bad: #b3574b;       /* errors, -N */
+  --color-warn: #a0791f;      /* warnings */
+}
+
+/* Dark tokens — same names, re-valued; must come AFTER the light block. */
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --color-paper: #141212;
+  --color-panel: #1a1817;
+  --color-sunken: #262423;
+  --color-line: #31302f;
+  --color-line-soft: #282623;
+
+  --color-ink: #e6e5e2;
+  --color-ink-2: #c9c8c4;
+  --color-ink-3: #a3a3a2;
+  --color-mute: #6f6d6a;
+
+  --color-accent: #5f8fd0;
+  --color-accent-2: #58b7e4;
+  --color-sky: #4aa3c7;
+
+  --color-good: #5fa868;
+  --color-bad: #d98a8a;
+  --color-warn: #d9b06a;
+}
+
+/* Base ----------------------------------------------------------------- */
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Desktop-shell feel: the app frame doesn't text-select; editable things do. */
+body { overflow: hidden; user-select: none; }
+input, textarea, [contenteditable] { user-select: text; }
+
+::selection {
+  background: color-mix(in srgb, var(--color-sky) 40%, transparent);
+}
+
+/* Scrollbars — 8px, thumb line → mute on hover, invisible track */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: var(--color-line); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-mute); }
+::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
+
+/* Indeterminate progress — the only gradient in the language. */
+@keyframes probe-sweep {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(250%); }
+}
+.probe-bar { position: relative; overflow: hidden; }
+.probe-bar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, transparent, var(--color-accent-2), transparent);
+  animation: probe-sweep 1.4s ease-in-out infinite;
+}
+
+/* Chat markdown -------------------------------------------------------- */
+.chat-md { font-size: 14px; line-height: 1.65; color: var(--color-ink); }
+.chat-md p { margin: 0 0 0.75em; white-space: pre-wrap; overflow-wrap: anywhere; }
+.chat-md > :first-child { margin-top: 0; }
+.chat-md > :last-child { margin-bottom: 0; }
+.chat-md h1, .chat-md h2, .chat-md h3, .chat-md h4 {
+  color: var(--color-ink-2); font-weight: 600; line-height: 1.3;
+}
+.chat-md h1 { font-size: 20px; font-weight: 700; letter-spacing: -0.015em; color: var(--color-ink); margin: 1.15em 0 0.45em; }
+.chat-md h2 { font-size: 14.5px; margin: 1.25em 0 0.5em; }
+.chat-md h3 { font-size: 13.5px; margin: 1em 0 0.4em; }
+.chat-md ul, .chat-md ol { margin: 0.25em 0 0.75em; padding-left: 1.3em; }
+.chat-md li { margin: 0.35em 0; }
+.chat-md li::marker { color: var(--color-mute); }
+.chat-md :not(pre) > code {
+  font-family: var(--font-mono); font-size: 12.5px;
+  background: var(--color-sunken); color: var(--color-ink-2);
+  border-radius: 3px; padding: 1.5px 5px; white-space: nowrap;
+}
+.chat-md pre {
+  background: var(--color-panel); border: 1px solid var(--color-line);
+  border-radius: 6px; padding: 10px 12px; overflow-x: auto;
+  font-size: 12px; line-height: 1.5; margin: 0.6em 0;
+}
+.chat-md pre > code { font-family: var(--font-mono); font-size: 12px; background: none; padding: 0; border-radius: 0; white-space: pre; }
+.chat-md a { color: var(--color-accent); text-decoration: none; }
+.chat-md a:hover { text-decoration: underline; }
+.chat-md blockquote { border-left: 2px solid var(--color-line); margin: 0.5em 0; padding-left: 10px; color: var(--color-ink-3); }
+.chat-md hr { border: none; border-top: 1px solid var(--color-line-soft); margin: 1em 0; }
+.chat-md table { border-collapse: collapse; margin: 0.5em 0; font-size: 13px; }
+.chat-md th, .chat-md td { border: 1px solid var(--color-line-soft); padding: 4px 8px; text-align: left; }
+.chat-md th { font-weight: 600; background: var(--color-sunken); }
+
+/* react-grid-layout — quiet chrome so cards carry the design */
+.react-grid-item.react-grid-placeholder {
+  background: var(--color-sky);
+  opacity: 0.15;
+  border-radius: 8px;
+}
+.react-resizable-handle { position: absolute; width: 16px; height: 16px; bottom: 0; right: 0; cursor: nwse-resize; }
+.react-resizable-handle::after {
+  content: "";
+  position: absolute; right: 4px; bottom: 4px;
+  width: 6px; height: 6px;
+  border-right: 1.5px solid var(--color-mute);
+  border-bottom: 1.5px solid var(--color-mute);
+  opacity: 0;
+  transition: opacity 120ms;
+}
+.react-grid-item:hover .react-resizable-handle::after { opacity: 1; }
