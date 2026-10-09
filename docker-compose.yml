@@ -1,0 +1,25 @@
+# Local demo backend: one small Postgres with two databases —
+#   demo_src:  the "company" source system (seeded GetInsightful Demo engineering data)
+#   warehouse: GetInsightful's local warehouse (Airbyte connector target)
+# Seed is mounted at /seed and applied by the setup wizard (or tests/README).
+services:
+  db:
+    image: postgres:16-alpine
+    ports:
+      - "5437:5432"
+    environment:
+      POSTGRES_USER: insightful
+      POSTGRES_PASSWORD: insightful
+      POSTGRES_DB: demo_src
+    volumes:
+      - demo_pg:/var/lib/postgresql/data
+      - ./tests/seed:/seed:ro
+      - ./tests/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U insightful -d demo_src"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+volumes:
+  demo_pg:
