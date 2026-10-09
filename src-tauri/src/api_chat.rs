@@ -105,6 +105,190 @@ pub async fn set_config(
     axum::Json(json!({"ok": true}))
 }
 
+// -- chat session persistence + continuous learning ----------------------------
+
+fn first_user_text(messages: &[Value]) -> String {
+    messages
+        .iter()
+        .find(|m| m.get("role").and_then(|r| r.as_str()) == Some("user"))
+        .and_then(|m| m.get("content"))
+        .and_then(|c| c.as_str())
+        .unwrap_or("")
+        .to_string()
+}
+
+/// Upsert the session and replace its messages (client sends full history each
+/// turn, so it stays the source of truth; the DB just makes history durable).
+/// Returns the session id — a new one when the client's id was missing/stale.
+async fn persist_session(app: &App, session_id: Option<&str>, messages: &[Value]) -> Option<String> {
+    let mut sid = String::new();
+    if let Some(id) = session_id {
+        let exists: Option<i32> = sqlx::query_scalar(
+            "update chat_sessions set updated_at = now() where id = $1::uuid returning 1",
+        )
+        .bind(id)
+        .fetch_optional(&app.db)
+        .await
+        .unwrap_or(None);
+        if exists.is_some() {
+            sid = id.to_string();
+        }
+    }
+    if sid.is_empty() {
+        let title = first_user_text(messages);
+        sid = sqlx::query_scalar::<_, String>(
+            "insert into chat_sessions (title) values ($1) returning id::text",
+        )
+        .bind(if title.is_empty() { "New chat".to_string() } else { truncate(&title, 60) })
+        .fetch_one(&app.db)
+        .await
+        .ok()?;
+    }
+    let mut tx = app.db.begin().await.ok()?;
+    let _ = sqlx::query("delete from chat_messages where session_id = $1::uuid")
+        .bind(&sid)
+        .execute(&mut *tx)
+        .await;
+    for (i, m) in messages.iter().enumerate() {
+        let Some(role) = m.get("role").and_then(|r| r.as_str()) else { continue };
+        if role != "user" && role != "assistant" {
+            continue;
+        }
+        let content = m.get("content").cloned().unwrap_or(json!(""));
+        let _ = sqlx::query(
+            "insert into chat_messages (session_id, seq, role, content) values ($1::uuid, $2, $3, $4)",
+        )
+        .bind(&sid)
+        .bind(i as i32)
+        .bind(role)
+        .bind(content)
+        .execute(&mut *tx)
+        .await;
+    }
+    tx.commit().await.ok()?;
+    Some(sid)
+}
+
+pub async fn sessions_list(State(app): State<App>) -> axum::Json<Value> {
+    let rows = sqlx::query(
+        "select s.id::text, s.title, s.updated_at,
+                (select count(*) from chat_messages m where m.session_id = s.id) as n
+         from chat_sessions s order by s.updated_at desc limit 50",
+    )
+    .fetch_all(&app.db)
+    .await
+    .unwrap_or_default();
+    let sessions: Vec<Value> = rows
+        .iter()
+        .map(|r| {
+            json!({
+                "id": r.get::<String, _>(0),
+                "title": r.get::<String, _>(1),
+                "updated_at": r.get::<chrono::DateTime<chrono::Utc>, _>(2),
+                "messages": r.get::<i64, _>(3),
+            })
+        })
+        .collect();
+    axum::Json(json!({ "sessions": sessions }))
+}
+
+pub async fn session_get(
+    State(app): State<App>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> axum::Json<Value> {
+    let rows = sqlx::query(
+        "select role, content from chat_messages where session_id = $1::uuid order by seq",
+    )
+    .bind(&id)
+    .fetch_all(&app.db)
+    .await
+    .unwrap_or_default();
+    let messages: Vec<Value> = rows
+        .iter()
+        .map(|r| json!({ "role": r.get::<String, _>(0), "content": r.get::<Value, _>(1) }))
+        .collect();
+    axum::Json(json!({ "id": id, "messages": messages }))
+}
+
+const LEARNING_PROMPT: &str = "You extract durable knowledge from a data-assistant exchange. \
+Return ONLY a JSON array (max 3 items) of objects {\"kind\": ..., \"text\": ...}. \
+kinds: \"fact\" (stable truth about the business or its data), \"preference\" (how the user wants answers), \
+\"procedure\" (how to accomplish something), \"learning\" (a stored answer to a prior question worth reusing). \
+Exclude ephemeral numbers, SQL text, and small talk. Return [] when nothing durable.";
+
+/// The Hyperspell-style continuous-learning loop: after a chat exchange, ask
+/// the same provider to distill durable memories, stored pending approval.
+/// Best-effort — failures are silently dropped, never surfaced to the chat.
+async fn learn_from_exchange(app: App, question: String, answer: String, session_id: String) {
+    if question.trim().is_empty() || answer.trim().is_empty() {
+        return;
+    }
+    let cfg = load_provider(&app).await;
+    let key = cfg.get("api_key").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    if key.is_empty() {
+        return;
+    }
+    let (base, model, bearer) = resolve_endpoint(&cfg);
+    let payload = json!({
+        "model": model,
+        "max_tokens": 512,
+        "system": LEARNING_PROMPT,
+        "messages": [{
+            "role": "user",
+            "content": format!("Question:\n{question}\n\nAnswer:\n{}", truncate(&answer, 4000))
+        }],
+    });
+    let mut req = app
+        .http
+        .post(format!("{base}/v1/messages"))
+        .header("anthropic-version", "2023-06-01")
+        .json(&payload);
+    req = if bearer {
+        req.header("Authorization", format!("Bearer {key}"))
+    } else {
+        req.header("x-api-key", &key)
+    };
+    let Ok(resp) = req.send().await else { return };
+    if !resp.status().is_success() {
+        return;
+    }
+    let Ok(text) = resp.text().await else { return };
+    let Ok(v) = serde_json::from_str::<Value>(&text) else { return };
+    let out = v
+        .get("content")
+        .and_then(|c| c.as_array())
+        .and_then(|a| a.iter().find(|b| b.get("type").and_then(|t| t.as_str()) == Some("text")))
+        .and_then(|b| b.get("text"))
+        .and_then(|t| t.as_str())
+        .unwrap_or("");
+    // lenient JSON extraction: the model may wrap the array in prose or fences
+    let (Some(start), Some(end)) = (out.find('['), out.rfind(']')) else { return };
+    let Ok(items) = serde_json::from_str::<Vec<Value>>(&out[start..=end]) else { return };
+    for item in items.into_iter().take(3) {
+        let kind = match item.get("kind").and_then(|k| k.as_str()).unwrap_or("") {
+            "fact" => "fact",
+            "preference" => "preference",
+            "procedure" => "procedure",
+            _ => "learning",
+        };
+        let Some(text) = item.get("text").and_then(|t| t.as_str()).map(str::trim) else { continue };
+        if text.len() < 8 {
+            continue;
+        }
+        let prov = json!({ "session_id": session_id, "question": truncate(&question, 200) });
+        let _ = sqlx::query(
+            "insert into memories (kind, text, status, source, provenance)
+             values ($1, $2, 'pending', 'chat', $3)
+             on conflict (lower(md5(text))) do nothing",
+        )
+        .bind(kind)
+        .bind(text)
+        .bind(prov)
+        .execute(&app.db)
+        .await;
+    }
+}
+
 // -- warehouse tools (shared with the MCP surface in api_context) -------------
 
 pub async fn execute_tool(app: &App, name: &str, args: &Value) -> Result<Value, String> {
@@ -155,13 +339,16 @@ pub async fn execute_tool(app: &App, name: &str, args: &Value) -> Result<Value, 
                 .collect();
             Ok(json!({ "rows": out, "row_count": out.len() }))
         }
-        "context_search" => api_context::search_entities(
-            &app,
-            args.get("query").and_then(|v| v.as_str()).unwrap_or(""),
-            args.get("limit").and_then(|v| v.as_i64()).unwrap_or(10).clamp(1, 50),
-        )
-        .await
-        .map_err(|e| e.to_string()),
+        "context_search" => {
+            let q = args.get("query").and_then(|v| v.as_str()).unwrap_or("");
+            let limit = args.get("limit").and_then(|v| v.as_i64()).unwrap_or(10).clamp(1, 50);
+            let entities = api_context::search_entities(&app, q, limit).await.map_err(|e| e.to_string())?;
+            let memories = api_context::search_memories(&app, q, limit, Some(&["pending", "approved"])).await?;
+            Ok(json!({
+                "entities": entities["entities"],
+                "memories": memories["memories"],
+            }))
+        }
         "list_tables" => {
             let tables = metrics::resolve_tables(&app.db).await.map_err(|e| e.to_string())?;
             Ok(json!({ "tables": tables.into_iter().map(|(s, t)| format!("{s}.{t}")).collect::<Vec<_>>() }))
@@ -183,7 +370,7 @@ pub fn tools_json() -> Value {
         },
         {
             "name": "context_search",
-            "description": "Search the pre-indexed business context store: service descriptions, table summaries, key entities.",
+            "description": "Search the pre-indexed business context store. Returns entities (table/service summaries, key objects) and memories — durable facts, procedures, preferences, and learnings extracted from past questions. Approved memories are authoritative prior answers; prefer them before re-running SQL.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -230,7 +417,7 @@ async fn schema_prompt(app: &App) -> String {
     format!(
         "You are the GetInsightful data assistant for this enterprise workspace. Today is {today} UTC.\n\
          The local warehouse (schema public) holds data landed by Airbyte connectors:\n{out}\n\
-         Answer data questions by querying run_sql (read-only). For business background, prefer context_search first. Keep answers compact and quantitative; show the SQL you ran.",
+         Answer data questions by querying run_sql (read-only). For business background, prefer context_search first — it also returns memories: durable facts and learnings from past questions, and approved ones are authoritative prior answers you can rely on without re-deriving them. Keep answers compact and quantitative; show the SQL you ran.",
         today = chrono::Utc::now().format("%Y-%m-%d")
     )
 }
@@ -238,6 +425,8 @@ async fn schema_prompt(app: &App) -> String {
 #[derive(Deserialize)]
 pub struct ChatBody {
     pub messages: Vec<Value>, // [{role: "user"|"assistant", content: string}]
+    #[serde(default)]
+    pub session_id: Option<String>,
 }
 
 pub async fn chat(
@@ -246,11 +435,26 @@ pub async fn chat(
 ) -> axum::response::Response {
     let (tx, rx) = tokio::sync::mpsc::channel::<Result<Event, Infallible>>(64);
     let app2 = app.clone();
+    let session_in = body.session_id.clone();
+    let question = body
+        .messages
+        .iter()
+        .rev()
+        .find(|m| m.get("role").and_then(|r| r.as_str()) == Some("user"))
+        .and_then(|m| m.get("content"))
+        .and_then(|c| c.as_str())
+        .unwrap_or("")
+        .to_string();
     tokio::spawn(async move {
         let send = |v: Value| {
             let tx = tx.clone();
             async move { let _ = tx.send(Ok(Event::default().data(v.to_string()))).await; }
         };
+        // persist history (durable across restarts) and tell the client its id
+        let session_id = persist_session(&app2, session_in.as_deref(), &body.messages).await;
+        if let Some(id) = &session_id {
+            send(json!({"type":"session","id": id})).await;
+        }
         let cfg = load_provider(&app2).await;
         let key = cfg.get("api_key").and_then(|v| v.as_str()).unwrap_or("").to_string();
         if key.is_empty() {
@@ -260,8 +464,11 @@ pub async fn chat(
         let (base, model, bearer) = resolve_endpoint(&cfg);
         let system = schema_prompt(&app2).await;
         let mut messages = body.messages.clone();
+        // last round's accumulated blocks (kind, tool_use_id, name, text/json)
+        let mut blocks: std::collections::BTreeMap<u64, (String, String, String, String)> =
+            Default::default();
 
-        for _round in 0..3 {
+        for _round in 0..12 {
             let payload = json!({
                 "model": model,
                 "max_tokens": 4096,
@@ -295,9 +502,7 @@ pub async fn chat(
             }
 
             // Accumulate content blocks while forwarding text deltas.
-            // block = (kind, tool_use_id, tool_name, accumulated text/json)
-            let mut blocks: std::collections::BTreeMap<u64, (String, String, String, String)> =
-                Default::default();
+            blocks = Default::default();
             let mut stop_reason = String::new();
             let mut buf = String::new();
             let mut resp = resp;
@@ -363,8 +568,7 @@ pub async fn chat(
             }
 
             if stop_reason != "tool_use" || blocks.is_empty() {
-                send(json!({"type":"done"})).await;
-                return;
+                break;
             }
 
             // Execute tool calls, feed results back, loop for another round.
@@ -398,7 +602,35 @@ pub async fn chat(
             messages.push(json!({"role":"assistant","content": assistant_content}));
             messages.push(json!({"role":"user","content": tool_results}));
         }
-        send(json!({"type":"error","error":"Too many tool rounds; stopping."})).await;
+        // Answer complete (or out of rounds — stop gracefully rather than
+        // erroring; whatever text accumulated stands). Persist the assistant
+        // reply so a restart mid-conversation still shows it, then continuous
+        // learning: distill the exchange into pending memories. (The client
+        // re-sends full history next turn, which replaces these rows anyway.)
+        send(json!({"type":"done"})).await;
+        let final_text: String = blocks
+            .values()
+            .filter(|(k, ..)| k == "text")
+            .map(|(.., t)| t.clone())
+            .collect::<Vec<_>>()
+            .join("\n");
+        if !final_text.is_empty() {
+            if let Some(sid) = &session_id {
+                let _ = sqlx::query(
+                    "insert into chat_messages (session_id, seq, role, content)
+                     select $1::uuid, coalesce(max(seq), -1) + 1, 'assistant', to_jsonb($2)
+                     from chat_messages where session_id = $1::uuid",
+                )
+                .bind(sid)
+                .bind(&final_text)
+                .execute(&app2.db)
+                .await;
+            }
+        }
+        let app3 = app2.clone();
+        let q = question.clone();
+        let sid = session_id.clone().unwrap_or_default();
+        tokio::spawn(learn_from_exchange(app3, q, final_text, sid));
     });
     use axum::response::IntoResponse;
     Sse::new(ReceiverStream::new(rx)).keep_alive(KeepAlive::default()).into_response()

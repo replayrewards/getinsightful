@@ -29,3 +29,19 @@ runner/.venv/bin/python runner/context.py
 
 Connection string used by the API: `postgres://insightful:insightful@localhost:5437/warehouse`
 (override with `DATABASE_URL`).
+
+## Memory-core E2E
+
+`e2e_memory.sh` verifies the continuous-learning loop end to end against a
+local mock Anthropic-protocol provider (`mock_provider.py`) — no real API key
+needed. Requires the API on :3000 and the warehouse Postgres on :5437:
+
+```sh
+tests/e2e_memory.sh
+```
+
+Covers: chat session persistence → learning extraction (pending, with
+provenance) → approval → grounding via `/api/context/search` and MCP
+`context_search` → md5 dedupe on re-learn. Your real `ai_provider` setting is
+backed up and restored around the run.
+

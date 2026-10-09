@@ -103,7 +103,9 @@ input, textarea, [contenteditable] { user-select: text; }
 
 /* Chat markdown -------------------------------------------------------- */
 .chat-md { font-size: 14px; line-height: 1.65; color: var(--color-ink); }
-.chat-md p { margin: 0 0 0.75em; white-space: pre-wrap; overflow-wrap: anywhere; }
+/* no pre-wrap: with a real parser, single newlines are soft breaks — models
+   hard-wrap source lines mid-sentence and pre-wrap would show those breaks */
+.chat-md p { margin: 0 0 0.75em; overflow-wrap: anywhere; }
 .chat-md > :first-child { margin-top: 0; }
 .chat-md > :last-child { margin-bottom: 0; }
 .chat-md h1, .chat-md h2, .chat-md h3, .chat-md h4 {

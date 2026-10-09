@@ -72,9 +72,16 @@ pub async fn build_router(state: App) -> axum::Router {
         // context layer
         .route("/api/context/overview", get(api_context::overview))
         .route("/api/context/search", get(api_context::search))
+        .route(
+            "/api/context/memories/{id}",
+            axum::routing::patch(api_context::memories_patch).delete(api_context::memories_delete),
+        )
+        .route("/api/context/memories", get(api_context::memories_list))
         // chat
         .route("/api/chat/config", get(api_chat::get_config).post(api_chat::set_config))
         .route("/api/chat", post(api_chat::chat))
+        .route("/api/chat/sessions", get(api_chat::sessions_list))
+        .route("/api/chat/sessions/{id}", get(api_chat::session_get))
         // MCP surface (Claude/Cursor can attach here)
         .route("/mcp", post(api_context::mcp))
         .route("/mcp", get(api_context::mcp_info))

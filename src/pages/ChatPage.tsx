@@ -1,5 +1,7 @@
-import { SendHorizonal, Settings2 } from "lucide-react";
+import { MessageSquarePlus, SendHorizonal, Settings2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { Button, Input, Modal, Pill, Select } from "../components/ui";
 import { api, sse } from "../lib/api";
 
@@ -17,11 +19,35 @@ interface ProviderCfg {
   key_hint: string;
 }
 
+// Assistant answers render as GFM markdown (headings, tables, code, lists) via
+// react-markdown — no raw HTML passes through. Links are inert so a click can
+// never navigate the desktop webview away from the app. The .chat-md styles in
+// styles.css carry the actual look.
+function Markdown({ children }: { children: string }) {
+  return (
+    <div className="chat-md">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          a: ({ children }) => (
+            <span className="text-accent underline decoration-accent/40">{children}</span>
+          ),
+        }}
+      >
+        {children}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
 // AI Chat — bring your own model. Any Anthropic-protocol provider works:
 // Anthropic directly, or Z.ai GLM's coding plan (api.z.ai/api/anthropic).
 // Answers stream and can call the warehouse tools (run_sql, context_search).
+// Sessions persist server-side (history survives restarts) and durable
+// learnings from each exchange land in the context layer pending approval.
 export function ChatPage() {
   const [messages, setMessages] = useState<Msg[]>([]);
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [cfg, setCfg] = useState<ProviderCfg | null>(null);
@@ -30,6 +56,19 @@ export function ChatPage() {
 
   useEffect(() => {
     api.chatConfig().then(setCfg);
+    // resume the latest session so history survives restarts
+    api.chatSessions().then((r) => {
+      const s = r.sessions[0];
+      if (!s) return;
+      api.chatSession(s.id).then((d) => {
+        setSessionId(d.id);
+        setMessages(
+          d.messages
+            .filter((m) => m.role === "user" || m.role === "assistant")
+            .map((m) => ({ role: m.role as Msg["role"], content: typeof m.content === "string" ? m.content : "" })),
+        );
+      });
+    });
   }, []);
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -45,9 +84,11 @@ export function ChatPage() {
     try {
       await sse(
         "/api/chat",
-        { messages: history.map((m) => ({ role: m.role, content: m.content })) },
+        { session_id: sessionId, messages: history.map((m) => ({ role: m.role, content: m.content })) },
         (ev) => {
-          if (ev.type === "text") {
+          if (ev.type === "session") {
+            setSessionId(String(ev.id));
+          } else if (ev.type === "text") {
             const t = String(ev.text);
             setMessages((cur) => {
               const copy = [...cur];
@@ -96,10 +137,24 @@ export function ChatPage() {
               : "…"}
           </p>
         </div>
-        <Button variant="chip" onClick={() => setSettingsOpen(true)}>
-          <Settings2 size={12} className="mr-1.5 inline" />
-          Providers
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="chip"
+            onClick={() => {
+              setMessages([]);
+              setSessionId(null);
+              setInput("");
+            }}
+            disabled={streaming}
+          >
+            <MessageSquarePlus size={12} className="mr-1.5 inline" />
+            New chat
+          </Button>
+          <Button variant="chip" onClick={() => setSettingsOpen(true)}>
+            <Settings2 size={12} className="mr-1.5 inline" />
+            Providers
+          </Button>
+        </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto py-5">
@@ -141,7 +196,11 @@ export function ChatPage() {
                   <Pill tone="running">tool · {m.tool}</Pill>
                 </div>
               )}
-              <div className="chat-md whitespace-pre-wrap">{m.content || " "}</div>
+              {m.role === "assistant" ? (
+                <Markdown>{m.content || "…"}</Markdown>
+              ) : (
+                <div className="whitespace-pre-wrap">{m.content || " "}</div>
+              )}
             </div>
           </div>
         ))}

@@ -92,6 +92,16 @@ export interface Status {
   warehouse_tables: number;
 }
 
+export interface Memory {
+  id: number;
+  kind: "fact" | "preference" | "procedure" | "learning";
+  text: string;
+  status: "pending" | "approved" | "rejected";
+  source: string;
+  provenance: { session_id?: string; question?: string };
+  created_at: string;
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     headers: { "Content-Type": "application/json" },
@@ -183,9 +193,10 @@ export const api = {
   },
 
   contextOverview: () =>
-    req<{ collections: { source: string; collection: string; entities: number; updated: string }[] }>(
-      "/api/context/overview",
-    ),
+    req<{
+      collections: { source: string; collection: string; entities: number; updated: string }[];
+      memories: { total: number; pending: number };
+    }>("/api/context/overview"),
   contextSearch: (q: string) =>
     req<{
       entities: {
@@ -195,7 +206,16 @@ export const api = {
         title: string;
         summary: string;
       }[];
+      memories: Memory[];
     }>(`/api/context/search?q=${encodeURIComponent(q)}`),
+  memories: () => req<{ memories: Memory[] }>("/api/context/memories"),
+  setMemoryStatus: (id: number, status: "approved" | "rejected" | "pending") =>
+    req<{ ok: boolean }>(`/api/context/memories/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ status }),
+    }),
+  deleteMemory: (id: number) =>
+    req<{ ok: boolean }>(`/api/context/memories/${id}`, { method: "DELETE" }),
 
   chatConfig: () =>
     req<{ provider: string; base_url: string | null; model: string | null; has_key: boolean; key_hint: string }>(
@@ -203,6 +223,14 @@ export const api = {
     ),
   setChatConfig: (body: { provider: string; base_url?: string; model?: string; api_key?: string }) =>
     req<{ ok: boolean }>("/api/chat/config", { method: "POST", body: JSON.stringify(body) }),
+  chatSessions: () =>
+    req<{ sessions: { id: string; title: string; updated_at: string; messages: number }[] }>(
+      "/api/chat/sessions",
+    ),
+  chatSession: (id: string) =>
+    req<{ id: string; messages: { role: string; content: unknown }[] }>(
+      `/api/chat/sessions/${id}`,
+    ),
 
   mcpInfo: () => req<Record<string, unknown>>("/mcp"),
 };

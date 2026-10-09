@@ -118,6 +118,15 @@ curl "localhost:3000/api/warehouse/tables/public/incidents?limit=5"
 curl localhost:3000/api/context/overview
 ```
 
+## Memories (the learning layer)
+
+`context_search` (AI chat + `POST /mcp`) returns entities **and memories**:
+durable facts, procedures, preferences, and learnings distilled from past chat
+questions. `approved` memories are authoritative prior answers — prefer them
+before re-deriving with SQL. New learnings land `pending` and need human
+approval in the Context page (`/api/context/memories` list/PATCH/DELETE).
+
+
 ## Rules
 
 1. **Read the warehouse before inventing cards.** `/api/warehouse/tables` +

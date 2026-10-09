@@ -7,3 +7,4 @@ runner/registry.json
 .context/
 *.log
 .DS_Store
+*.tsbuildinfo
