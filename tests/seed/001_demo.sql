@@ -1,6 +1,6 @@
--- Genzeon (demo tenant) engineering source data — deterministic, 90 days.
--- Applied inside the sample source DB (genzeon_src) by the setup wizard:
---   docker compose exec -T db psql -U insightful -d genzeon_src -f /seed/001_genzeon.sql
+-- GetInsightful Demo (demo tenant) engineering source data — deterministic, 90 days.
+-- Applied inside the sample source DB (demo_src) by the setup wizard:
+--   docker compose exec -T db psql -U insightful -d demo_src -f /seed/001_demo.sql
 -- Re-runnable: drops and recreates its tables.
 
 select setseed(0.42);

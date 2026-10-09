@@ -73,7 +73,7 @@ export default function App() {
             <div className="flex items-center justify-between">
               <div className="text-[10.5px] leading-relaxed text-mute">
                 Demo tenant
-                <div className="text-[11.5px] text-ink-3">Genzeon · engineering</div>
+                <div className="text-[11.5px] text-ink-3">GetInsightful Demo · engineering</div>
               </div>
               <button
                 onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}

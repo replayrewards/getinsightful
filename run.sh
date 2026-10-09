@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # GetInsightful launcher: kills old instances, starts the local Postgres, and
 # runs the desktop app (vite :1420 + embedded API :3000). If the warehouse is
-# empty, runs the demo pipeline (Genzeon seed → real Airbyte ingest → context
+# empty, runs the demo pipeline (seed → real Airbyte ingest → context
 # index → default dashboard) via the app's own setup endpoint.
 #
 #   ./run.sh          # restart, keep existing demo data
@@ -20,11 +20,11 @@ kill_port 1420
 
 if [ "$FRESH" = 1 ]; then
   echo "▸ --fresh: wiping docker volume (warehouse + source DB)"
-  docker compose -f tests/docker-compose.yml down -v
+  docker compose down -v
 fi
 
 echo "▸ starting Postgres"
-docker compose -f tests/docker-compose.yml up -d --wait
+docker compose up -d --wait
 
 [ -d node_modules ] || { echo "▸ installing node deps"; npm ci; }
 

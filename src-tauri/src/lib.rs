@@ -33,7 +33,7 @@ async fn init_pool(url: &str) -> PgPool {
         .acquire_timeout(Duration::from_secs(5))
         .connect(url)
         .await
-        .expect("warehouse Postgres unreachable — run `docker compose -f tests/docker-compose.yml up -d` first");
+        .expect("warehouse Postgres unreachable — run `docker compose up -d` first");
     let migrator = sqlx::migrate::Migrator::new(std::path::Path::new(&format!(
         "{}/migrations",
         env!("CARGO_MANIFEST_DIR")

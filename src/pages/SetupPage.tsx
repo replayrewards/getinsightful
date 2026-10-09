@@ -4,7 +4,7 @@ import { Button } from "../components/ui";
 import { sse } from "../lib/api";
 
 // First-run wizard: bring your own data via Airbyte connectors, or start from
-// the Genzeon sample (a real local Postgres seeded in tests/, ingested by a
+// the demo sample (a real local Postgres seeded in tests/, ingested by a
 // real source-postgres connector run).
 export function SetupPage({ onDone }: { onDone: () => void }) {
   const [picked, setPicked] = useState<"sample" | "own" | null>(null);
@@ -53,7 +53,7 @@ export function SetupPage({ onDone }: { onDone: () => void }) {
             <Database size={16} className="text-accent-2" />
             <div className="mt-3 text-[13.5px] font-medium text-ink">Start with sample data</div>
             <div className="mt-1 text-[12px] leading-relaxed text-ink-3">
-              Boots a local Postgres with <span className="text-ink">Genzeon</span> engineering data
+              Boots a local Postgres with <span className="text-ink">GetInsightful Demo</span> engineering data
               (a healthcare-tech demo tenant) and runs a real Airbyte connector to land it in the
               warehouse.
             </div>
@@ -83,7 +83,7 @@ interface Step {
 }
 const STEPS: Step[] = [
   { key: "docker", label: "Start local Postgres" },
-  { key: "seed", label: "Seed Genzeon source data" },
+  { key: "seed", label: "Seed demo source data" },
   { key: "register", label: "Register source-postgres" },
   { key: "ingest", label: "Run Airbyte connector → warehouse" },
   { key: "context", label: "Build the context store" },
@@ -116,7 +116,7 @@ function SampleRun({ onDone, onCancel }: { onDone: () => void; onCancel: () => v
   return (
     <div className="flex h-full items-center justify-center">
       <div className="w-[560px] rounded-lg border border-line bg-panel p-6">
-        <h2 className="text-[15px] font-semibold text-ink">Setting up sample data (Genzeon)</h2>
+        <h2 className="text-[15px] font-semibold text-ink">Setting up sample data</h2>
         <p className="mt-1 text-[12.5px] text-ink-3">
           Real pipeline, no mocks: Postgres → SQL seed → Airbyte connector run → warehouse → context
           store.

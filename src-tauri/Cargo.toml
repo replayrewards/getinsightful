@@ -4,6 +4,7 @@ version = "0.1.0"
 default-run = "getinsightful"
 edition = "2021"
 description = "GetInsightful — AI-native data workspace for enterprises"
+license = "MIT"
 
 [lib]
 name = "getinsightful_lib"

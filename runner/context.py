@@ -101,7 +101,7 @@ def main() -> None:
                         set title = excluded.title, indexed_at = now()
                         """,
                         ("warehouse", table, eid, title,
-                         f"{table[:-1] if table.endswith('s') else table} {eid} in the Genzeon engineering dataset.",
+                         f"{table[:-1] if table.endswith('s') else table} {eid} in the GetInsightful Demo engineering dataset.",
                          json.dumps({})),
                     )
 

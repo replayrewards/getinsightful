@@ -59,7 +59,7 @@ pub async fn services(State(app): State<App>) -> axum::Json<Value> {
     axum::Json(json!({ "services": names }))
 }
 
-// -- setup wizard: sample data (Genzeon) ------------------------------------
+// -- setup wizard: sample data (GetInsightful Demo) --------------------------
 // Real pipeline, no simulation: docker compose Postgres → SQL seed → PyAirbyte
 // source-postgres read → warehouse → context index → default dashboard.
 
@@ -97,19 +97,19 @@ pub async fn setup_sample(State(app): State<App>) -> axum::response::Response {
         let root = runner::project_root();
         let step = |n: &str, detail: &str| json!({"type":"step","step":n,"detail":detail});
 
-        send(&tx, step("docker", "Starting local Postgres (tests/docker-compose.yml)")).await;
+        send(&tx, step("docker", "Starting local Postgres (docker-compose.yml)")).await;
         if let Err(e) = run_cmd(&root, "docker", &[
-            "compose", "-f", "tests/docker-compose.yml", "up", "-d", "--wait",
+            "compose", "-f", "docker-compose.yml", "up", "-d", "--wait",
         ]).await {
             send(&tx, json!({"type":"error","error": e, "hint": "Is Docker Desktop running?"})).await;
             return;
         }
 
-        send(&tx, step("seed", "Seeding Genzeon engineering data into source DB")).await;
+        send(&tx, step("seed", "Seeding GetInsightful Demo engineering data into source DB")).await;
         if let Err(e) = run_cmd(&root, "docker", &[
-            "compose", "-f", "tests/docker-compose.yml", "exec", "-T", "db",
-            "psql", "-U", "insightful", "-d", "genzeon_src", "-v", "ON_ERROR_STOP=1",
-            "-f", "/seed/001_genzeon.sql",
+            "compose", "-f", "docker-compose.yml", "exec", "-T", "db",
+            "psql", "-U", "insightful", "-d", "demo_src", "-v", "ON_ERROR_STOP=1",
+            "-f", "/seed/001_demo.sql",
         ]).await {
             send(&tx, json!({"type":"error","error": e})).await;
             return;
@@ -118,7 +118,7 @@ pub async fn setup_sample(State(app): State<App>) -> axum::response::Response {
         send(&tx, step("register", "Registering source-postgres connector")).await;
         let config = json!({
             "host": "localhost", "port": 5437,
-            "database": "genzeon_src", "username": "insightful", "password": "insightful",
+            "database": "demo_src", "username": "insightful", "password": "insightful",
             "replication_method": {"method": "Standard"}
         });
         // idempotent: reuse the source registered by a previous setup run
@@ -133,7 +133,7 @@ pub async fn setup_sample(State(app): State<App>) -> axum::response::Response {
             Some(id) => id,
             None => sqlx::query_scalar(
                 "insert into sources (connector, name, category, config, schedule)
-                 values ('source-postgres', 'Genzeon Engineering (sample)', 'Databases', $1, 'manual')
+                 values ('source-postgres', 'GetInsightful Demo (sample)', 'Databases', $1, 'manual')
                  returning id",
             )
             .bind(&config)

@@ -1,6 +1,6 @@
 # Local demo backend: one small Postgres with two databases —
-#   genzeon_src: the "company" source system (seeded Genzeon engineering data)
-#   warehouse:   GetInsightful's local warehouse (Airbyte connector target)
+#   demo_src:  the "company" source system (seeded GetInsightful Demo engineering data)
+#   warehouse: GetInsightful's local warehouse (Airbyte connector target)
 # Seed is mounted at /seed and applied by the setup wizard (or tests/README).
 services:
   db:
@@ -10,16 +10,16 @@ services:
     environment:
       POSTGRES_USER: insightful
       POSTGRES_PASSWORD: insightful
-      POSTGRES_DB: genzeon_src
+      POSTGRES_DB: demo_src
     volumes:
-      - genzeon_pg:/var/lib/postgresql/data
-      - ./seed:/seed:ro
-      - ./init:/docker-entrypoint-initdb.d:ro
+      - demo_pg:/var/lib/postgresql/data
+      - ./tests/seed:/seed:ro
+      - ./tests/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U insightful -d genzeon_src"]
+      test: ["CMD-SHELL", "pg_isready -U insightful -d demo_src"]
       interval: 2s
       timeout: 2s
       retries: 30
 
 volumes:
-  genzeon_pg:
+  demo_pg:
